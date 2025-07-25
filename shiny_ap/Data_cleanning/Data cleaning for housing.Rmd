@@ -1,0 +1,223 @@
+---
+title: "Data Cleaning for Housing Prices"
+author: "Alex Zargarian"
+date: "2024-07-24"
+output:pdf
+---
+
+# Housing Data Cleaning and Transformation
+
+This script cleans and transforms Airbnb housing data. The process involves selecting relevant columns, removing unnecessary ones, cleaning data types, handling missing values, creating new features, and renaming columns for clarity before exporting the final dataset.
+
+## Setup and Library Loading
+
+This chunk sets up the environment and loads the necessary R libraries for data manipulation and analysis.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+```{r load-libraries}
+library(readr)
+library(dplyr)
+library(stringr)
+library(tidyr)
+```
+
+## 1. Data Loading
+
+Here, we load the original dataset from the specified CSV file and display its initial dimensions and column names.
+
+```{r load-data}
+# Define the file path for the raw data.
+# Please ensure this path is correct for your system.
+file_path <- "/Data used/House Price/part-00295-e039244b-cf18-4c20-a539-6e32f86875aa.c000.csv"
+
+# Read the data from the CSV file.
+original_data <- read_csv(file_path, show_col_types = FALSE)
+
+# Display the dimensions and column names of the original dataset.
+cat("Original dataset dimensions:", dim(original_data), "\n")
+cat("Original column names:\n")
+print(colnames(original_data))
+```
+
+## 2. Data Cleaning and Transformation
+
+This section performs the main data cleaning tasks. We select a subset of columns, clean text and numeric data, handle boolean conversions, and create a new calculated column for price per guest.
+
+```{r clean-and-transform-data}
+# Clean and process the data using a dplyr pipeline.
+cleaned_data <- original_data %>%
+  # Step 2.1: Select only the columns we need for the final analysis.
+  # Columns like 'amenities', 'min_nights', 'rating_cleanliness', and various revpar/revenue metrics are removed as requested.
+  select(
+    listing_id,
+    listing_name,
+    listing_type,
+    room_type,
+    host_id,
+    host_name,
+    superhost,
+    latitude,
+    longitude,
+    guests,
+    bedrooms,
+    beds,
+    baths,
+    instant_book,
+    cancellation_policy,
+    cleaning_fee,
+    extra_guest_fee,
+    num_reviews,
+    rating_overall,
+    rating_location,
+    rating_value,
+    ttm_avg_rate,
+    ttm_occupancy,
+    l90d_avg_rate,
+    l90d_occupancy
+  ) %>%
+  # Step 2.2: Mutate columns to clean data, convert types, and create new features.
+  mutate(
+    # Clean categorical string data.
+    listing_type = str_to_lower(str_trim(listing_type)),
+    room_type = str_to_lower(str_trim(room_type)),
+    cancellation_policy = str_to_lower(str_trim(cancellation_policy)),
+    
+    # Standardize boolean fields.
+    superhost = case_when(
+      superhost == TRUE | tolower(superhost) == "true" | superhost == 1 ~ TRUE,
+      superhost == FALSE | tolower(superhost) == "false" | superhost == 0 ~ FALSE,
+      TRUE ~ NA
+    ),
+    instant_book = case_when(
+      instant_book == TRUE | tolower(instant_book) == "true" | instant_book == 1 ~ TRUE,
+      instant_book == FALSE | tolower(instant_book) == "false" | instant_book == 0 ~ FALSE,
+      TRUE ~ NA
+    ),
+    
+    # Convert currency and percentage columns to numeric, removing non-numeric characters.
+    ttm_avg_rate = as.numeric(gsub("[^0-9.]", "", ttm_avg_rate)),
+    l90d_avg_rate = as.numeric(gsub("[^0-9.]", "", l90d_avg_rate)),
+    cleaning_fee = as.numeric(gsub("[^0-9.]", "", cleaning_fee)),
+    extra_guest_fee = as.numeric(gsub("[^0-9.]", "", extra_guest_fee)),
+    
+    # Convert occupancy rates from string (e.g., "50%") to numeric (e.g., 0.50).
+    ttm_occupancy = as.numeric(gsub("%", "", ttm_occupancy)) / 100,
+    l90d_occupancy = as.numeric(gsub("%", "", l90d_occupancy)) / 100,
+
+    # Ensure other numeric columns are of the correct type.
+    guests = as.numeric(guests),
+    bedrooms = as.numeric(bedrooms),
+    beds = as.numeric(beds),
+    baths = as.numeric(baths),
+    num_reviews = as.numeric(num_reviews),
+    
+    # Validate rating scores to be within the 0-5 range.
+    rating_overall = if_else(rating_overall >= 0 & rating_overall <= 5, rating_overall, NA_real_),
+    rating_location = if_else(rating_location >= 0 & rating_location <= 5, rating_location, NA_real_),
+    rating_value = if_else(rating_value >= 0 & rating_value <= 5, rating_value, NA_real_),
+    
+    # Create a new feature for price per guest. Use pmax to avoid division by zero.
+    price_per_guest = ttm_avg_rate / pmax(guests, 1, na.rm = TRUE),
+    
+    # Create a location category based on coordinates for Yerevan.
+    city_category = case_when(
+      latitude >= 40.1 & latitude <= 40.2 & longitude >= 44.4 & longitude <= 44.6 ~ "Yerevan Area",
+      !is.na(latitude) & !is.na(longitude) ~ "Other Armenia",
+      TRUE ~ "Unknown"
+    )
+  ) %>%
+  # Step 2.3: Filter out rows with essential missing information.
+  filter(
+    !is.na(listing_id),
+    !is.na(latitude) & !is.na(longitude)
+  )
+
+cat("Dimensions after cleaning and selection:", dim(cleaned_data), "\n")
+```
+
+## 3. Rename Columns for Clarity
+
+To make the dataset easier to understand, we rename the columns to be more descriptive.
+
+```{r rename-columns}
+final_data <- cleaned_data %>%
+  rename(
+    `Listing ID` = listing_id,
+    `Listing Name` = listing_name,
+    `Property Type` = listing_type,
+    `Room Type` = room_type,
+    `Host ID` = host_id,
+    `Host Name` = host_name,
+    `Is Superhost` = superhost,
+    `Latitude` = latitude,
+    `Longitude` = longitude,
+    `Max Guests` = guests,
+    `Bedrooms` = bedrooms,
+    `Beds` = beds,
+    `Bathrooms` = baths,
+    `Is Instant Bookable` = instant_book,
+    `Cancellation Policy` = cancellation_policy,
+    `Cleaning Fee` = cleaning_fee,
+    `Extra Guest Fee` = extra_guest_fee,
+    `Number of Reviews` = num_reviews,
+    `Overall Rating` = rating_overall,
+    `Location Rating` = rating_location,
+    `Value Rating` = rating_value,
+    `TTM Avg Daily Rate` = ttm_avg_rate,
+    `TTM Occupancy Rate` = ttm_occupancy,
+    `L90D Avg Daily Rate` = l90d_avg_rate,
+    `L90D Occupancy Rate` = l90d_occupancy,
+    `Price Per Guest` = price_per_guest,
+    `City Category` = city_category
+  )
+
+cat("Final dataset dimensions after renaming:", dim(final_data), "\n")
+cat("Final column names:\n")
+print(colnames(final_data))
+```
+
+## 4. Final Data Inspection
+
+
+```{r inspect-final-data}
+cat("Missing values summary:\n")
+final_data %>%
+  summarise_all(~sum(is.na(.))) %>%
+  gather(key = "Column", value = "Missing Count") %>%
+  filter(`Missing Count` > 0) %>%
+  arrange(desc(`Missing Count`)) %>%
+  print()
+
+# Display summary statistics for key variables.
+cat("\nSummary statistics for key variables:\n")
+summary(final_data[c("Max Guests", "Bedrooms", "Beds", "Bathrooms", "Number of Reviews", 
+                     "Overall Rating", "TTM Avg Daily Rate", "L90D Avg Daily Rate", "Price Per Guest")])
+```
+
+## 5. Review Cleaned Data
+
+Here we'll print the first few rows of the final, cleaned dataframe to see the result.
+
+```{r review-output}
+cat("First 10 rows of the final cleaned data:\n")
+head(final_data, 10) %>% print()
+
+cat("\nLocation categories breakdown:\n")
+final_data %>% count(`City Category`, sort = TRUE) %>% print()
+```
+
+
+
+```{r export-data}
+
+output_path <- "/shiny_ap/data/cleaned_rental_data_from_Airbnb_v2.csv"
+
+write_csv(final_data, output_path)
+
+cat("\nCleaned data successfully exported to:", output_path, "\n")
+cat("Final dataset contains", nrow(final_data), "listings with", ncol(final_data), "variables.\n")
+```
